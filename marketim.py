@@ -6,87 +6,82 @@ import streamlit.components.v1 as components
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Çamlık Market Terminal", layout="centered")
 
-# --- LOGO ---
-if os.path.exists("image_1.png"):
-    st.image("image_1.png", use_container_width=True)
-
-# --- VERİ YÜKLEME ---
+# --- VERİ YÜKLEME (GELİŞTİRİLMİŞ) ---
 @st.cache_data
 def verileri_yukle():
     dosyalar = [f for f in os.listdir('.') if f.endswith('.csv')]
-    hedef = next((d for d in dosyalar if 'envanter' in d.lower() or '2.xls' in d.lower()), None)
+    # Envanter dosyasını bul (envanter.csv veya benzeri)
+    hedef = next((d for d in dosyalar if 'envanter' in d.lower() or 'stok' in d.lower() or '2.xls' in d.lower()), None)
+    
     if hedef:
         try:
+            # Dosyayı oku
             df = pd.read_csv(hedef, encoding='utf-8-sig', sep=None, engine='python')
+            # Sütun isimlerini standartlaştır
             df.columns = ['BARKOD', 'ÜRÜN ADI', 'STOK', 'BİRİM', 'FİYAT'] + list(df.columns[5:])
+            
+            # KRİTİK DÜZELTME: Barkodları temiz metne çevir (0'ların kaybolmaması için)
+            df['BARKOD'] = df['BARKOD'].astype(str).str.split('.').str[0].str.strip()
+            
+            # Sayısal alanları temizle
             df['FİYAT'] = pd.to_numeric(df['FİYAT'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
             df['STOK'] = pd.to_numeric(df['STOK'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-            df['KALEM DEĞERİ'] = df['STOK'] * df['FİYAT']
-            df['BARKOD'] = df['BARKOD'].astype(str).str.strip()
             return df
-        except: return None
+        except Exception as e:
+            st.error(f"Dosya okuma hatası: {e}")
+            return None
     return None
 
 df = verileri_yukle()
 
-# --- URL'DEN GELEN BARKODU YAKALA ---
+# --- URL PARAMETRE YÖNETİMİ ---
 url_params = st.query_params
-okunan_barkod = url_params.get("barcode", "")
+# Kameradan gelen barkodu al ve temizle
+okunan_barkod = str(url_params.get("barcode", "")).strip()
 
-st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>⚡ Profesyonel Barkod Terminali</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center;'>⚡ Market Barkod Terminali</h3>", unsafe_allow_html=True)
 
-# --- 1. ADIM: EĞER BARKOD YOKSA KAMERAYI GÖSTER ---
-if not okunan_barkod:
-    st.info("📸 Barkodu kare içine getirin, otomatik okunacaktır.")
-    
-    # En profesyonel JS tarayıcı (Html5-QRCode)
+# --- KAMERA BÖLÜMÜ ---
+if not okunan_barkod or okunan_barkod == "None":
+    st.info("📸 Barkodu okutun...")
     terminal_html = """
-    <div id="reader" style="width: 100%; border-radius: 15px; overflow: hidden;"></div>
+    <div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden;"></div>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
         const html5QrCode = new Html5Qrcode("reader");
-        const config = { fps: 20, qrbox: { width: 280, height: 150 } };
-
-        const onScanSuccess = (decodedText, decodedResult) => {
-            // 1. Sesli uyarı
-            var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-            audio.play();
-            
-            // 2. Taramayı durdur (donmasın diye)
-            html5QrCode.stop().then(() => {
-                // 3. Adres çubuğunu güncelle ve sayfayı zorla yenile
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set('barcode', decodedText);
-                window.parent.location.href = url.href;
-            });
+        const onScanSuccess = (decodedText) => {
+            const url = new URL(window.parent.location.href);
+            url.searchParams.set('barcode', decodedText.trim());
+            window.parent.location.href = url.href;
         };
-
-        // Arka kamerayı (environment) başlat
-        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
+        html5QrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, onScanSuccess);
     </script>
     """
     components.html(terminal_html, height=350)
-
-# --- 2. ADIM: SONUÇLARI VE MANUEL ARAMAYI GÖSTER ---
-st.divider()
-arama = st.text_input("🔍 Barkod veya Ürün Adı Girin:", value=okunan_barkod)
-
-if okunan_barkod:
-    if st.button("🔄 Yeni Ürün Okut (Kamerayı Aç)"):
+else:
+    # --- ÜRÜN BULMA VE GÖSTERME ---
+    st.success(f"🔎 Aranan Barkod: {okunan_barkod}")
+    
+    if st.button("🔄 Yeni Ürün Okut"):
         st.query_params.clear()
         st.rerun()
 
-if df is not None and arama:
-    sonuc = df[(df['BARKOD'] == arama) | (df['ÜRÜN ADI'].str.contains(arama, case=False, na=False))]
-    
-    if not sonuc.empty:
-        for _, row in sonuc.iterrows():
-            st.success(f"### {row['ÜRÜN ADI']}")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("FİYAT", f"{row['FİYAT']} TL")
-            c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-            c3.metric("TOPLAM DEĞER", f"{row['KALEM DEĞERİ']:,.2f} TL")
-            st.caption(f"Kayıtlı Barkod: {row['BARKOD']}")
-            st.divider()
-    else:
-        st.error(f"❌ Ürün bulunamadı: {arama}")
+    if df is not None:
+        # ARAMA MANTIĞI: Hem tam eşleşme hem de içerme kontrolü
+        sonuc = df[df['BARKOD'] == okunan_barkod]
+        
+        # Eğer tam eşleşme yoksa, barkodun içinde geçiyor mu diye bak (bazı cihazlar baştaki 0'ı okumaz)
+        if sonuc.empty:
+            sonuc = df[df['BARKOD'].str.contains(okunan_barkod, na=False)]
+
+        if not sonuc.empty:
+            for _, row in sonuc.iterrows():
+                st.balloons()
+                st.markdown(f"## {row['ÜRÜN ADI']}")
+                col1, col2 = st.columns(2)
+                col1.metric("FİYAT", f"{row['FİYAT']:.2f} TL")
+                col2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
+                st.divider()
+        else:
+            st.error(f"❌ '{okunan_barkod}' barkodlu ürün listede bulunamadı.")
+            st.warning("İpucu: Excel/CSV dosyanızdaki barkod numarasının cihazın okuduğuyla aynı olduğundan emin olun.")
