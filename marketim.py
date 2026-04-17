@@ -11,118 +11,75 @@ try:
 except:
     BARKOD_SISTEMI = False
 
-# --- 1. SAYFA VE TEMA AYARLARI ---
-# Sayfayı logoya uygun aydınlık ve geniş yapıyoruz
-st.set_page_config(page_title="Çamlık Market Stok", layout="wide", page_icon="image_1.png")
+# --- SAYFA AYARLARI ---
+st.set_page_config(page_title="Çamlık Market Stok", layout="centered")
 
-# --- 2. GÖRSEL TASARIM (CSS) ---
-# Logonun yeşil ve beyaz tonlarını temel alan modern bir tema
-st.markdown("""
-<style>
-    /* Ana Arka Plan */
-    .stApp { background-color: #f7fff7; }
-    
-    /* Başlık ve Slogan */
-    .market-title {
-        color: #2a7e2a; 
-        font-size: 36px; 
-        font-weight: bold; 
-        text-align: center;
-        margin-bottom: 0px;
-    }
-    .market-slogan {
-        color: #6da26d;
-        font-size: 18px;
-        font-style: italic;
-        text-align: center;
-        margin-top: -10px;
-        margin-bottom: 30px;
-    }
-    
-    /* Input Alanları ve Tablo */
-    .stTextInput>div>div>input {
-        background-color: #ffffff;
-        border: 2px solid #a3d9a3;
-        border-radius: 8px;
-        color: #2a7e2a;
-    }
-    .stDataFrame {
-        border-radius: 8px;
-        border: 1px solid #a3d9a3;
-    }
-</style>
-""", unsafe_allow_html=True)
+# --- LOGO VE BAŞLIK ---
+# GitHub'a yüklediğin image_1.png dosyasını kullanır
+if os.path.exists("image_1.png"):
+    st.image("image_1.png", use_container_width=True)
 
-# --- 3. VERİ YÜKLEME ---
+st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>Canlı Barkod Okuma Sistemi</h3>", unsafe_allow_html=True)
+
+# --- VERİ YÜKLEME ---
 @st.cache_data
 def verileri_yukle():
     dosyalar = [f for f in os.listdir('.') if f.endswith('.csv')]
-    # Senin 2.xls - envanter.csv dosyanı veya envanter içeren dosyayı bulur
     hedef = next((d for d in dosyalar if 'envanter' in d.lower() or '2.xls' in d.lower()), None)
     if hedef:
-        try:
-            # Sütun isimlerini senin dosyandaki başlıklarla (Stok Kodu, Stok Adı vb.) eşliyoruz
-            df = pd.read_csv(hedef, encoding='utf-8-sig', sep=None, engine='python')
-            df.columns = ['BARKOD', 'ÜRÜN ADI', 'STOK', 'BİRİM', 'FİYAT'] + list(df.columns[5:])
-            df['BARKOD'] = df['BARKOD'].astype(str).str.strip()
-            return df, hedef
-        except:
-            return None, "Dosya okuma hatası."
-    return None, None
+        df = pd.read_csv(hedef, encoding='utf-8-sig', sep=None, engine='python')
+        # Sütunları senin dosyandaki gerçek isimlerle eşle
+        df.columns = ['BARKOD', 'ÜRÜN ADI', 'STOK', 'BİRİM', 'FİYAT'] + list(df.columns[5:])
+        
+        # Sayısal temizlik ve Hesaplamalar
+        df['FİYAT'] = pd.to_numeric(df['FİYAT'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        df['STOK'] = pd.to_numeric(df['STOK'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        df['KALEM DEĞERİ'] = df['STOK'] * df['FİYAT']
+        df['BARKOD'] = df['BARKOD'].astype(str).str.strip()
+        return df
+    return None
 
-df, dosya_adi = verileri_yukle()
+df = verileri_yukle()
 
-# --- 4. ARARYÜZ BAŞLANGIÇ (Logo ve Slogan) ---
-# Masaüstünde ve mobilde logoyu ve sloganı en üstte gösterir
-c1, c2, c3 = st.columns([1, 2, 1])
-with c2:
-    st.image("image_1.png", use_container_width=True) # Logonun adı 'image_1.png' olmalı
-    st.markdown('<p class="market-slogan">"Mahallemizin Gülen Yüzü"</p>', unsafe_allow_html=True)
-
-# --- 5. KAMERA BÖLÜMÜ (IPHONE & TABLET UYUMLU) ---
-# file_uploader kullanarak iPhone/tabletlerdeki kamera izni sorununu aşıyoruz.
-# Bu düğme iPhone'da direkt "Fotoğraf Çek" seçeneğini açar.
-foto_yukleyici = st.file_uploader("📸 Barkodu kameraya gösterin ve fotoğraf çekin", type=['jpg', 'jpeg', 'png'], help="Düğmeye dokunun, telefon kameranız açılacaktır.")
-
+# --- KAMERA VE OKUMA SİSTEMİ ---
 okunan_barkod = ""
 
-if foto_yukleyici and BARKOD_SISTEMI:
-    try:
-        img = Image.open(foto_yukleyici)
-        # Barkodu tarama
-        detaylar = decode(img)
-        if detaylar:
-            okunan_barkod = detaylar[0].data.decode("utf-8")
-            st.success(f"Başarılı! Okunan Barkod: {okunan_barkod}")
-            st.balloons() # Güzel bir efekt ekliyoruz
-        else:
-            st.error("Barkod okunamadı! Lütfen daha net ve yakın bir fotoğraf çekin.")
-    except Exception as e:
-        st.error(f"Fotoğraf işlenemedi: {e}")
+# iPhone'da HTTPS olduğu için artık bu kısım hata vermeden kamerayı açar
+with st.container():
+    kamera_karesi = st.camera_input("Barkodu kameraya gösterin ve çekin")
 
-# --- 6. HIZLI ARAMA VE SONUÇ ---
+    if kamera_karesi and BARKOD_SISTEMI:
+        img = Image.open(kamera_karesi)
+        sonuclar = decode(img)
+        if sonuclar:
+            okunan_barkod = sonuclar[0].data.decode("utf-8")
+            st.success(f"✅ Barkod Algılandı: {okunan_barkod}")
+            st.balloons()
+        else:
+            st.warning("⚠️ Barkod net değil veya bulunamadı. Lütfen tekrar deneyin.")
+
+# --- ARAMA VE TABLO ---
 st.write("---")
-# Barkod okutulduğunda burası otomatik dolar
-arama_kutusu = st.text_input("🔍 Barkod veya Ürün Adı:", value=okunan_barkod, placeholder="Ürün adı veya barkod girin...")
+arama = st.text_input("🔍 Ürün Adı veya Barkod:", value=okunan_barkod)
 
 if df is not None:
-    # Arama motoru: Hem isimde hem barkodda arar
-    sonuc = df[df['ÜRÜN ADI'].str.contains(arama_kutusu, case=False, na=False) | (df['BARKOD'] == arama_kutusu)]
-    
-    if arama_kutusu:
-        if not sonuc.empty:
-            st.write(f"### Bulunan Ürün Detayları ({len(sonuc)} Adet)")
-            # Sadece önemli sütunları daha temiz göster
-            st.dataframe(sonuc[['BARKOD', 'ÜRÜN ADI', 'STOK', 'FİYAT']], use_container_width=True, height=400)
+    # Arama motoru
+    filtre = arama if arama else okunan_barkod
+    if filtre:
+        sonuc_df = df[df['ÜRÜN ADI'].str.contains(filtre, case=False, na=False) | (df['BARKOD'] == filtre)]
+        
+        if not sonuc_df.empty:
+            for _, row in sonuc_df.iterrows():
+                st.markdown(f"### {row['ÜRÜN ADI']}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("FİYAT", f"{row['FİYAT']} TL")
+                c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
+                c3.metric("KALEM DEĞERİ", f"{row['KALEM DEĞERİ']:,.2f} TL")
+                st.write(f"**Barkod:** {row['BARKOD']}")
+                st.divider()
         else:
-            st.warning("Bu kriterde bir ürün bulunamadı.")
+            st.error("❌ Aranan ürün stokta bulunamadı.")
     else:
-        # Arama kutusu boşsa tüm listeyi göster
-        st.write("### Tüm Envanter Listesi")
-        st.dataframe(df[['BARKOD', 'ÜRÜN ADI', 'STOK', 'FİYAT']], use_container_width=True, height=500)
-    
-    # Alt Bilgi
-    st.info(f"Şu an çalışan liste: {dosya_adi}")
-
+        st.info("Kameradan barkod çekin veya yukarıya ürün adı yazın.")
 else:
-    st.error("CSV dosyası bulunamadı! Lütfen '2.xls - envanter.csv' dosyasını klasöre kopyalayın.")
+    st.error("Dosya bulunamadı! Lütfen envanter.csv dosyasını GitHub'a yüklediğinizden emin olun.")
