@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import streamlit.components.v1 as components
 
-# --- 1. AYARLAR VE VERİ ---
+# --- AYARLAR ---
 st.set_page_config(page_title="Çamlık Market", layout="centered")
 
 @st.cache_data
@@ -23,60 +23,65 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# URL'den gelen barkodu oku
+# URL'den barkodu oku
 params = st.query_params
 okunan = params.get("barcode", "")
 
-# --- 2. ARAYÜZ ---
-st.markdown("<h2 style='text-align: center;'>🚀 Çamlık Market Terminal</h2>", unsafe_allow_html=True)
+# --- ARAYÜZ ---
+st.markdown("<h2 style='text-align: center; color: #2a7e2a;'>🚀 Çamlık Market Terminal</h2>", unsafe_allow_html=True)
 
 if not okunan:
-    st.warning("📸 Barkodu kameraya gösterin, otomatik bulacaktır.")
+    st.info("📸 Barkodu kameraya gösterin, otomatik bulacaktır.")
     
-    # JAVASCRIPT: Barkodu bulduğu an URL'ye basar ve sayfayı YENİLER
-    kamera_js = """
+    # JAVASCRIPT: Streamlit ile doğrudan konuşan gelişmiş okuyucu
+    kamera_html = """
     <div id="reader" style="width: 100%; border-radius: 15px; border: 5px solid #2a7e2a;"></div>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
         const html5QrCode = new Html5Qrcode("reader");
-        const config = { fps: 25, qrbox: { width: 250, height: 150 } };
+        const config = { fps: 30, qrbox: { width: 250, height: 150 } };
         
         const success = (text) => {
-            // Bip sesi
+            // Bip sesi çal
             var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
             audio.play();
             
-            // DURMA: Hemen URL'ye git ve sayfayı zorla yenile (Streamlit'i uyandır)
-            const u = new URL(window.parent.location.href);
-            u.searchParams.set('barcode', text.trim());
-            window.parent.location.href = u.href;
+            // KRİTİK NOKTA: Streamlit URL'sini doğrudan manipüle et ve sayfayı "hard reload" yap
+            const currentUrl = new URL(window.parent.location.href);
+            currentUrl.searchParams.set('barcode', text.trim());
             
-            html5QrCode.stop();
+            // Kamerayı durdur ve yönlendir
+            html5QrCode.stop().then(() => {
+                window.parent.location.href = currentUrl.href;
+            });
         };
 
-        html5QrCode.start({ facingMode: "environment" }, config, success);
+        html5QrCode.start({ facingMode: "environment" }, config, success)
+            .catch(err => console.error("Kamera hatası:", err));
     </script>
     """
-    components.html(kamera_js, height=350)
+    components.html(kamera_html, height=380)
     
-    # Yedek manuel kutu
-    manuel = st.text_input("🔍 Barkod Okunmazsa Yazın:")
+    # Yedek manuel giriş (Eğer kamera izin vermezse)
+    st.write("---")
+    manuel = st.text_input("🔍 Barkod Okunmazsa Buraya Yazın:")
     if manuel:
         st.query_params["barcode"] = manuel
         st.rerun()
 
 else:
-    # --- 3. ÜRÜN GÖSTERME ---
+    # --- ÜRÜN GÖSTERME ---
     if st.button("⬅️ YENİ ÜRÜN OKUT"):
         st.query_params.clear()
         st.rerun()
 
     if df is not None:
-        hedef = str(okunan).strip()
-        sonuc = df[df['BARKOD'] == hedef]
+        hedef_barkod = str(okunan).strip()
+        sonuc = df[df['BARKOD'] == hedef_barkod]
         
+        # Eğer tam barkodla bulamazsa 'içinde geçiyor mu' diye bak
         if sonuc.empty:
-            sonuc = df[df['BARKOD'].str.contains(hedef, na=False)]
+            sonuc = df[df['BARKOD'].str.contains(hedef_barkod, na=False)]
 
         if not sonuc.empty:
             st.write("---")
@@ -85,6 +90,7 @@ else:
                 c1, c2 = st.columns(2)
                 c1.metric("FİYAT", f"{row['FİYAT']:.2f} TL")
                 c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-                st.info(f"💰 Toplam Değer: {row['STOK'] * row['FİYAT']:,.2f} TL")
+                st.info(f"💰 Toplam Mal Değeri: {row['STOK'] * row['FİYAT']:,.2f} TL")
         else:
-            st.error(f"❌ '{okunan}' barkodu listede yok!")
+            st.error(f"❌ '{okunan}' barkodu listede bulunamadı!")
+            st.write("CSV dosyanızdaki barkod ile okunan barkodun aynı olduğundan emin olun.")
