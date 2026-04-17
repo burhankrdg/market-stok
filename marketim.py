@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
-from streamlit_quagga2 import streamlit_quagga2
+from streamlit_zxing import zxing_barcode_scanner
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Çamlık Market Terminal", layout="centered")
@@ -19,10 +19,10 @@ def verileri_yukle():
     hedef = next((d for d in dosyalar if 'envanter' in d.lower() or '2.xls' in d.lower()), None)
     if hedef:
         df = pd.read_csv(hedef, encoding='utf-8-sig', sep=None, engine='python')
-        # Sütunları senin dosyandaki gerçek isimlerle eşle
+        # Sütun isimlerini sabitle
         df.columns = ['BARKOD', 'ÜRÜN ADI', 'STOK', 'BİRİM', 'FİYAT'] + list(df.columns[5:])
         
-        # Sayısal Temizlik ve Hesaplama
+        # Sayısal Temizlik
         df['FİYAT'] = pd.to_numeric(df['FİYAT'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         df['STOK'] = pd.to_numeric(df['STOK'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         df['KALEM DEĞERİ'] = df['STOK'] * df['FİYAT']
@@ -32,32 +32,33 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# --- CANLI BARKOD TARAYICI ---
-# Bu bileşen kamerayı otomatik açar ve 'Take Photo' tuşuna basmanı gerektirmez.
-st.write("📸 Barkodu kameraya gösterin...")
-barkod_verisi = streamlit_quagga2(key='scanner')
+# --- CANLI BARKOD TARAYICI (ZXING) ---
+st.write("📸 Barkodu kameraya gösterin (Otomatik okur)")
+# Bu bileşen hiçbir düğme gerektirmeden barkodu canlı yakalar
+barkod_sonucu = zxing_barcode_scanner(key='terminal_scanner')
 
 # --- SONUÇLARI GÖSTER ---
-# Barkod okunduğunda veya elle girildiğinde çalışır
 arama_metni = ""
 
-if barkod_verisi:
-    arama_metni = barkod_verisi
-    st.success(f"Okunan Barkod: {arama_metni}")
+if barkod_sonucu:
+    # Barkod verisi gelince içindeki metni alıyoruz
+    arama_metni = barkod_sonucu['barcodeText']
+    st.success(f"✅ Okundu: {arama_metni}")
 else:
     arama_metni = st.text_input("Veya Ürün Adı Girin:", "")
 
 if df is not None and arama_metni:
+    # Barkod veya isimle eşleşenleri bul
     sonuc = df[df['ÜRÜN ADI'].str.contains(arama_metni, case=False, na=False) | (df['BARKOD'] == arama_metni)]
     
     if not sonuc.empty:
         for _, row in sonuc.iterrows():
             with st.container():
-                st.markdown(f"### {row['ÜRÜN ADI']}")
-                col1, col2 = st.columns(2)
-                col1.metric("FİYAT", f"{row['FİYAT']} TL")
-                col2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-                st.info(f"Bu kalemdeki toplam mal değeri: **{row['KALEM DEĞERİ']:,.2f} TL**")
+                st.markdown(f"#### {row['ÜRÜN ADI']}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("FİYAT", f"{row['FİYAT']} TL")
+                c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
+                c3.metric("KALEM DEĞERİ", f"{row['KALEM DEĞERİ']:,.2f} TL")
                 st.divider()
-    else:
+    elif arama_metni:
         st.warning("Ürün bulunamadı.")
