@@ -87,3 +87,4 @@ else:
                 st.info(f"💰 Kalem Değeri: {row['STOK'] * row['FİYAT']:,.2f} TL")
                 st.caption(f"Barkod No: {row['BARKOD']}")
         else:
+            st.error(f"❌ Ürün bulunamadı: {hedef}")
