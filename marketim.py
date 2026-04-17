@@ -10,8 +10,6 @@ st.set_page_config(page_title="Çamlık Market Terminal", layout="centered")
 if os.path.exists("image_1.png"):
     st.image("image_1.png", use_container_width=True)
 
-st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>⚡ Otomatik Barkod Terminali</h3>", unsafe_allow_html=True)
-
 # --- VERİ YÜKLEME ---
 @st.cache_data
 def verileri_yukle():
@@ -29,60 +27,34 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# --- OTOMATİK BARKOD YAKALAMA (JS SİHRİ) ---
-# Quagga barkodu okur ve Streamlit'in dahili mekanizmasını tetikler
+# --- URL PARAMETRESİNDEN BARKODU AL ---
+# Sayfa yenilendiğinde barkodu buradan yakalıyoruz
+url_params = st.query_params
+okunan_barkod = url_params.get("barcode", "")
+
+# --- CANLI BARKOD TARAYICI (JS) ---
+st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>⚡ Canlı Barkod Terminali</h3>", unsafe_allow_html=True)
 st.write("📸 Barkodu kameraya gösterin...")
 
-# HTML ve Gelişmiş JavaScript Köprüsü
-barcode_html = """
-<div id="interactive" class="viewport" style="width: 100%; height: 250px; border: 3px solid #2a7e2a; border-radius: 15px; overflow: hidden;"></div>
+barcode_js = """
+<div id="interactive" class="viewport" style="width: 100%; height: 200px; border: 3px solid #2a7e2a; border-radius: 15px; overflow: hidden;"></div>
 <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
 <script>
     Quagga.init({
-        inputStream : {
-            name : "Live",
-            type : "LiveStream",
-            target: document.querySelector('#interactive'),
-            constraints: { facingMode: "environment" }
-        },
-        decoder : {
-            readers : ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader"]
-        },
+        inputStream : { name : "Live", type : "LiveStream", target: document.querySelector('#interactive'), constraints: { facingMode: "environment" } },
+        decoder : { readers : ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader"] },
         locate: true
-    }, function(err) {
-        if (err) { console.error(err); return; }
-        Quagga.start();
-    });
+    }, function(err) { if (err) { return; } Quagga.start(); });
 
     let lastCode = "";
     Quagga.onDetected(function(result) {
         let code = result.codeResult.code;
-        
-        // Aynı barkodu üst üste okuyup sayfayı yormasın diye kontrol
         if (code !== lastCode) {
             lastCode = code;
-            
-            // 1. Sesli uyarı (Bip)
-            var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-            audio.play();
-
-            // 2. Streamlit Input alanını bul, değeri yaz ve ENTER tetikle
-            const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-            for (let i = 0; i < inputs.length; i++) {
-                // Bizim placeholder'ı hedef alıyoruz
-                if (inputs[i].placeholder === "Otomatik aranıyor...") {
-                    let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                    nativeInputValueSetter.call(inputs[i], code);
-                    
-                    // Streamlit'in değişikliği algılaması için gerekli event'ler
-                    inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
-                    inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
-                    
-                    // Otomatik arama için küçük bir gecikmeyle odak kaydırma (blur)
-                    setTimeout(() => { inputs[i].blur(); }, 100);
-                    break;
-                }
-            }
+            // SİHİRLİ DOKUNUŞ: Sayfayı barkod parametresiyle yenile
+            const url = new URL(window.parent.location.href);
+            url.searchParams.set('barcode', code);
+            window.parent.location.href = url.href;
         }
     });
 </script>
@@ -91,24 +63,20 @@ barcode_html = """
     #interactive video { width: 100%; height: 100%; object-fit: cover; }
 </style>
 """
-components.html(barcode_html, height=270)
+components.html(barcode_js, height=220)
 
-# Bu kutu JavaScript tarafından otomatik doldurulacak
-arama_kutusu = st.text_input("Barkod:", placeholder="Otomatik aranıyor...", key="barkod_input")
+# Temizleme butonu (Aramayı sıfırlamak için)
+if okunan_barkod:
+    if st.button("❌ Aramayı Temizle / Yeni Ürün"):
+        st.query_params.clear()
+        st.rerun()
 
-# --- SONUÇLARI ANINDA GÖSTER ---
-if df is not None and arama_kutusu:
-    # Hem Barkod hem Ürün Adı kontrolü
-    sonuc = df[(df['BARKOD'] == arama_kutusu) | (df['ÜRÜN ADI'].str.contains(arama_kutusu, case=False, na=False))]
+# --- SONUÇLARI GÖSTER ---
+if df is not None and okunan_barkod:
+    sonuc = df[(df['BARKOD'] == okunan_barkod)]
     
     if not sonuc.empty:
-        st.write("---")
+        st.success(f"### Barkod: {okunan_barkod}")
         for _, row in sonuc.iterrows():
-            st.success(f"### {row['ÜRÜN ADI']}")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("FİYAT", f"{row['FİYAT']} TL")
-            c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-            c3.metric("KALEM DEĞERİ", f"{row['KALEM DEĞERİ']:,.2f} TL")
-            st.info(f"Barkod: {row['BARKOD']}")
-    else:
-        st.warning(f"'{arama_kutusu}' barkodlu ürün bulunamadı.")
+            st.markdown(f"## {row['ÜRÜN ADI']}")
+            c1, c2, c3 = st.columns(3
