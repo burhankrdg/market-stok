@@ -1,4 +1,4 @@
 streamlit
 pandas
 Pillow
-streamlit-barcode-scanner
+streamlit-quagga2
