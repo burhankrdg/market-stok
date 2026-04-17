@@ -22,60 +22,40 @@ def verileri_yukle():
     return None
 
 df = verileri_yukle()
+okunan = st.query_params.get("barcode", "")
 
-# URL'den barkodu oku (Sihirli nokta burası)
-url_params = st.query_params
-okunan = url_params.get("barcode", "")
+st.markdown("<h2 style='text-align: center;'>🛒 Çamlık Market Terminal</h2>", unsafe_allow_html=True)
 
-# --- BAŞLIK ---
-st.markdown("<h2 style='text-align: center; color: #2a7e2a;'>🚀 Çamlık Market Terminal</h2>", unsafe_allow_html=True)
-
-# --- EĞER BARKOD OKUNMAMIŞSA KAMERAYI GÖSTER ---
+# --- ANA MANTIK ---
 if not okunan:
-    st.info("📸 Barkodu gösterin, ses geldiğinde ürün açılacaktır.")
-    
+    # KAMERAYI AÇAN BÖLÜM (En basit ve çalışan hali)
     kamera_js = """
-    <div id="reader" style="width: 100%; border-radius: 15px; border: 4px solid #2a7e2a;"></div>
+    <div id="reader" style="width: 100%; border-radius: 10px; border: 3px solid #2a7e2a;"></div>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
         const html5QrCode = new Html5Qrcode("reader");
-        
-        function onScanSuccess(decodedText) {
-            // 1. SES ÇIKARMA (Tarayıcı izinleri için)
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.type = "sine";
-            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // Bip sesi frekansı
-            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.2);
-
-            // 2. SAYFAYI ZORLA YENİLE (Zorla yönlendirme)
-            setTimeout(() => {
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set('barcode', decodedText.trim());
-                window.parent.location.href = url.href;
-            }, 100);
-        }
-
-        const config = { fps: 20, qrbox: { width: 250, height: 150 } };
-        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
+        html5QrCode.start(
+            { facingMode: "environment" }, 
+            { fps: 15, qrbox: 250 },
+            (text) => {
+                // Sadece URL'yi değiştir ve sayfayı yenile (En güvenli yol)
+                const u = new URL(window.parent.location.href);
+                u.searchParams.set('barcode', text.trim());
+                window.parent.location.href = u.href;
+            }
+        ).catch(err => console.error(err));
     </script>
     """
-    components.html(kamera_js, height=360)
+    components.html(kamera_js, height=350)
     
     st.write("---")
-    manuel = st.text_input("🔍 Veya Elle Yazın:")
+    manuel = st.text_input("🔍 Veya Elle Barkod Girin:")
     if manuel:
         st.query_params["barcode"] = manuel
         st.rerun()
-
-# --- EĞER BARKOD OKUNMUŞSA SONUCU GÖSTER ---
 else:
-    if st.button("⬅️ YENİ ÜRÜN İÇİN TIKLA"):
+    # SONUÇLARI GÖSTEREN BÖLÜM
+    if st.button("⬅️ Yeni Ürün Okut"):
         st.query_params.clear()
         st.rerun()
 
@@ -87,12 +67,11 @@ else:
             sonuc = df[df['BARKOD'].str.contains(hedef, na=False)]
 
         if not sonuc.empty:
-            st.divider()
             for _, row in sonuc.iterrows():
                 st.success(f"### {row['ÜRÜN ADI']}")
                 c1, c2 = st.columns(2)
                 c1.metric("FİYAT", f"{row['FİYAT']:.2f} TL")
                 c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-                st.info(f"💰 Kalem Değeri: {row['STOK'] * row['FİYAT']:,.2f} TL")
+                st.info(f"💰 Toplam Değer: {row['STOK'] * row['FİYAT']:,.2f} TL")
         else:
             st.error(f"❌ '{okunan}' barkodu bulunamadı.")
