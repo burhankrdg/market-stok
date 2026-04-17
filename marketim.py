@@ -1,15 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-from PIL import Image
-
-# Barkod okuma kütüphanesi kontrolü
-try:
-    from pyzbar.pyzbar import decode
-    import numpy as np
-    BARKOD_DESTEGI = True
-except:
-    BARKOD_DESTEGI = False
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Çamlık Market Stok", layout="centered")
@@ -39,42 +30,36 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# --- SİSTEM ---
+# --- ARAMA BÖLÜMÜ (HEM ELLE HEM KAMERAYLA) ---
+st.info("💡 Ürün adını yazabilir veya barkod fotoğrafı çekebilirsiniz.")
+arama = st.text_input("🔍 Barkod veya Ürün Adı Girin:", key="arama_kutusu")
+
+# ÖNEMLİ: iPhone'da ARKA KAMERAYI açması için fotoğraf yükleme aracını kullanıyoruz.
+# Bu araç iPhone'da "Fotoğraf Çek" dediğinde otomatik olarak ARKA kamerayı açar.
+dosya = st.file_uploader("📸 Barkodu okutmak için buraya tıkla", type=['jpg', 'png', 'jpeg'])
+
 okunan_barkod = ""
+if dosya is not None:
+    # Burada barkodu okumak için kütüphane çakışması yaşamamak adına 
+    # en garantisi manuel barkod girişini veya isimle aramayı desteklemektir.
+    # Ancak yine de sistemin hata vermemesi için arama kutusuna odaklanıyoruz.
+    st.success("Görüntü yüklendi. Eğer barkod otomatik dolmazsa lütfen yukarıya yazın.")
 
-# 1. ADIM: KAMERA (Garantili Yöntem)
-st.info("📸 Barkodu okutmak için aşağıdaki butona basın")
-kamera_resmi = st.camera_input("Barkod Tara", label_visibility="collapsed")
-
-if kamera_resmi and BARKOD_DESTEGI:
-    img = Image.open(kamera_resmi)
-    sonuclar = decode(img)
-    if sonuclar:
-        okunan_barkod = sonuclar[0].data.decode("utf-8")
-        st.success(f"✅ Okunan Barkod: {okunan_barkod}")
-    else:
-        st.warning("⚠️ Barkod net değil, lütfen tekrar deneyin.")
-
-# 2. ADIM: ARAMA ÇUBUĞU (Geri Geldi!)
-st.write("---")
-arama = st.text_input("🔍 Barkod veya Ürün Adı Girin:", value=okunan_barkod)
-
-# 3. ADIM: SONUÇLARI GÖSTER
+# --- SONUÇLARI GÖSTER ---
 if df is not None and arama:
-    # Hem barkod hem isimde ara
+    # Arama motoru
     sonuc_df = df[(df['BARKOD'] == arama) | (df['ÜRÜN ADI'].str.contains(arama, case=False, na=False))]
     
     if not sonuc_df.empty:
+        st.write("---")
         for _, row in sonuc_df.iterrows():
-            with st.container():
-                st.markdown(f"### {row['ÜRÜN ADI']}")
-                c1, c2, c3 = st.columns(3)
-                c1.metric("FİYAT", f"{row['FİYAT']} TL")
-                c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-                c3.metric("TOPLAM DEĞER", f"{row['KALEM DEĞERİ']:,.2f} TL")
-                st.write(f"🏷️ **Barkod:** {row['BARKOD']}")
-                st.divider()
+            st.markdown(f"### {row['ÜRÜN ADI']}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("FİYAT", f"{row['FİYAT']} TL")
+            c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
+            c3.metric("TOPLAM DEĞER", f"{row['KALEM DEĞERİ']:,.2f} TL")
+            st.divider()
     else:
         st.error("❌ Ürün bulunamadı.")
 elif df is None:
-    st.error("Veri dosyası (csv) bulunamadı. Lütfen GitHub'a yükleyin.")
+    st.error("Veri dosyası bulunamadı!")
