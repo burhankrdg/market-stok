@@ -1,16 +1,24 @@
 import streamlit as st
 import pandas as pd
 import os
-import streamlit.components.v1 as components
+from PIL import Image
+
+# Barkod motoru (pyzbar)
+try:
+    from pyzbar.pyzbar import decode
+    import numpy as np
+    BARKOD_OKUYUCU = True
+except:
+    BARKOD_OKUYUCU = False
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Çamlık Market Terminal", layout="centered")
+st.set_page_config(page_title="Çamlık Market Stok", layout="centered")
 
 # --- LOGO VE BAŞLIK ---
 if os.path.exists("image_1.png"):
     st.image("image_1.png", use_container_width=True)
 
-st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>⚡ Hızlı Barkod Terminali</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>🛒 Stok Sorgulama Terminali</h3>", unsafe_allow_html=True)
 
 # --- VERİ YÜKLEME ---
 @st.cache_data
@@ -29,58 +37,43 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# --- GELİŞMİŞ CANLI TARAYICI (HTML5-QRCode) ---
-st.write("📸 Barkodu çerçeve içine getirin...")
+# --- ANA SİSTEM ---
+okunan_barkod = ""
 
-# Bu JavaScript kodu iPhone kameralarında otomatik odaklama yapar ve çok hızlıdır
-barcode_reader_html = """
-<div id="reader" style="width: 100%; border-radius: 10px; overflow: hidden;"></div>
-<script src="https://unpkg.com/html5-qrcode"></script>
-<script>
-    function onScanSuccess(decodedText, decodedResult) {
-        // Barkod okunduğunda bip sesi çal (isteğe bağlı)
-        var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-        audio.play();
-        
-        // Okunan değeri Streamlit'e gönder
-        window.parent.postMessage({
-            type: 'streamlit:setComponentValue',
-            value: decodedText
-        }, '*');
-        
-        // Okuma sonrası durdurma (isteğe bağlı, seri okuma için kapatılabilir)
-        // html5QrcodeScanner.clear();
-    }
+# 1. ADIM: Kamerayı Aç
+st.write("📸 **Barkodu okutmak için 'Fotoğraf Çek' düğmesine basın:**")
+kamera_verisi = st.camera_input("Barkod Tara", label_visibility="collapsed")
 
-    let config = { 
-        fps: 20, 
-        qrbox: {width: 250, height: 150},
-        aspectRatio: 1.0
-    };
+# 2. ADIM: Görseli İşle
+if kamera_verisi:
+    img = Image.open(kamera_verisi)
+    # Barkodu bulmaya çalış
+    sonuclar = decode(img)
+    
+    if sonuclar:
+        okunan_barkod = sonuclar[0].data.decode("utf-8")
+        st.success(f"✅ Barkod Bulundu: {okunan_barkod}")
+        # Bip sesi simülasyonu
+        st.toast("Barkod başarıyla okundu!", icon="🔔")
+    else:
+        st.error("❌ Barkod net değil. Lütfen daha dik ve ışıklı bir açıyla tekrar deneyin.")
 
-    let html5QrcodeScanner = new Html5QrcodeScanner("reader", config, false);
-    html5QrcodeScanner.render(onScanSuccess);
-</script>
-"""
+# 3. ADIM: Arama ve Gösterim
+st.divider()
+arama = st.text_input("🔍 Manuel Barkod veya Ürün Adı:", value=okunan_barkod)
 
-# HTML Bileşenini ekrana basıyoruz
-# Bu bileşen okunan barkodu doğrudan 'okunan' değişkenine atar
-okunan = components.html(barcode_reader_html, height=450)
-
-# Arama kutusu (Manuel giriş veya otomatik dolum için)
-search_query = st.text_input("Barkod Kodu:", key="barkod_input", placeholder="Barkod bekleniyor...")
-
-# --- SONUÇLARI GÖSTER ---
-if df is not None and search_query:
-    sonuc = df[df['ÜRÜN ADI'].str.contains(search_query, case=False, na=False) | (df['BARKOD'] == search_query)]
+if df is not None and arama:
+    sonuc = df[df['ÜRÜN ADI'].str.contains(arama, case=False, na=False) | (df['BARKOD'] == arama)]
     
     if not sonuc.empty:
         for _, row in sonuc.iterrows():
-            st.markdown(f"### ✅ {row['ÜRÜN ADI']}")
-            c1, c2 = st.columns(2)
-            c1.metric("SATIŞ FİYATI", f"{row['FİYAT']} TL")
-            c2.metric("STOK MİKTARI", f"{int(row['STOK'])} {row['BİRİM']}")
-            st.info(f"💰 Bu kalemin toplam değeri: **{row['KALEM DEĞERİ']:,.2f} TL**")
-            st.divider()
+            with st.container():
+                st.markdown(f"### {row['ÜRÜN ADI']}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("FİYAT", f"{row['FİYAT']} TL")
+                c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
+                c3.metric("KALEM DEĞERİ", f"{row['KALEM DEĞERİ']:,.2f} TL")
+                st.write(f"🏷️ **Barkod:** {row['BARKOD']}")
+                st.divider()
     else:
-        st.warning(f"'{search_query}' barkodlu ürün listede yok.")
+        st.warning("Ürün bulunamadı.")
