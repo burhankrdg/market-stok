@@ -1,37 +1,31 @@
 import streamlit as st
 import pandas as pd
 import os
-from PIL import Image
-
-# Barkod okuma motorunu kontrol et
-try:
-    from pyzbar.pyzbar import decode
-    import numpy as np
-    BARKOD_SISTEMI = True
-except:
-    BARKOD_SISTEMI = False
+from streamlit_barcode_scanner import barcode_scanner # Bu kütüphane otomatik tarama yapar
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Çamlık Market Stok", layout="centered")
+st.set_page_config(page_title="Çamlık Market Terminal", layout="centered")
 
-# --- LOGO VE BAŞLIK ---
-# GitHub'a yüklediğin image_1.png dosyasını kullanır
+# --- 1. GEREKLİ KÜTÜPHANE KONTROLÜ ---
+# GitHub'daki requirements.txt dosyasına 'streamlit-barcode-scanner' eklemeyi unutma!
+
+# --- 2. LOGO VE BAŞLIK ---
 if os.path.exists("image_1.png"):
     st.image("image_1.png", use_container_width=True)
 
-st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>Canlı Barkod Okuma Sistemi</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>Canlı Barkod Terminali</h3>", unsafe_allow_html=True)
+st.write("Barkodu kameraya gösterin, otomatik tanıyacaktır.")
 
-# --- VERİ YÜKLEME ---
+# --- 3. VERİ YÜKLEME ---
 @st.cache_data
 def verileri_yukle():
     dosyalar = [f for f in os.listdir('.') if f.endswith('.csv')]
     hedef = next((d for d in dosyalar if 'envanter' in d.lower() or '2.xls' in d.lower()), None)
     if hedef:
         df = pd.read_csv(hedef, encoding='utf-8-sig', sep=None, engine='python')
-        # Sütunları senin dosyandaki gerçek isimlerle eşle
         df.columns = ['BARKOD', 'ÜRÜN ADI', 'STOK', 'BİRİM', 'FİYAT'] + list(df.columns[5:])
         
-        # Sayısal temizlik ve Hesaplamalar
+        # Sayısal Temizlik
         df['FİYAT'] = pd.to_numeric(df['FİYAT'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         df['STOK'] = pd.to_numeric(df['STOK'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         df['KALEM DEĞERİ'] = df['STOK'] * df['FİYAT']
@@ -41,45 +35,27 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# --- KAMERA VE OKUMA SİSTEMİ ---
-okunan_barkod = ""
+# --- 4. OTOMATİK BARKOD TARAYICI (TUŞSUZ) ---
+# Bu bileşen kamerayı canlı açar ve barkodu görünce değeri döndürür.
+okunan_barkod = barcode_scanner()
 
-# iPhone'da HTTPS olduğu için artık bu kısım hata vermeden kamerayı açar
-with st.container():
-    kamera_karesi = st.camera_input("Barkodu kameraya gösterin ve çekin")
+# --- 5. ARAMA VE SONUÇ ---
+if okunan_barkod:
+    st.audio("https://www.soundjay.com/buttons/beep-01a.mp3") # Barkod okununca 'Bip' sesi
+    st.success(f"Okunan Barkod: {okunan_barkod}")
+    arama_degeri = okunan_barkod
+else:
+    arama_degeri = st.text_input("Veya El ile Ürün/Barkod Girin:", "")
 
-    if kamera_karesi and BARKOD_SISTEMI:
-        img = Image.open(kamera_karesi)
-        sonuclar = decode(img)
-        if sonuclar:
-            okunan_barkod = sonuclar[0].data.decode("utf-8")
-            st.success(f"✅ Barkod Algılandı: {okunan_barkod}")
-            st.balloons()
-        else:
-            st.warning("⚠️ Barkod net değil veya bulunamadı. Lütfen tekrar deneyin.")
-
-# --- ARAMA VE TABLO ---
-st.write("---")
-arama = st.text_input("🔍 Ürün Adı veya Barkod:", value=okunan_barkod)
-
-if df is not None:
-    # Arama motoru
-    filtre = arama if arama else okunan_barkod
-    if filtre:
-        sonuc_df = df[df['ÜRÜN ADI'].str.contains(filtre, case=False, na=False) | (df['BARKOD'] == filtre)]
-        
-        if not sonuc_df.empty:
-            for _, row in sonuc_df.iterrows():
-                st.markdown(f"### {row['ÜRÜN ADI']}")
-                c1, c2, c3 = st.columns(3)
+if df is not None and arama_degeri:
+    sonuc = df[df['ÜRÜN ADI'].str.contains(arama_degeri, case=False, na=False) | (df['BARKOD'] == arama_degeri)]
+    
+    if not sonuc.empty:
+        for _, row in sonuc.iterrows():
+            with st.expander(f"📦 {row['ÜRÜN ADI']}", expanded=True):
+                c1, c2 = st.columns(2)
                 c1.metric("FİYAT", f"{row['FİYAT']} TL")
                 c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-                c3.metric("KALEM DEĞERİ", f"{row['KALEM DEĞERİ']:,.2f} TL")
-                st.write(f"**Barkod:** {row['BARKOD']}")
-                st.divider()
-        else:
-            st.error("❌ Aranan ürün stokta bulunamadı.")
+                st.info(f"Bu kalemdeki toplam mal değeri: **{row['KALEM DEĞERİ']:,.2f} TL**")
     else:
-        st.info("Kameradan barkod çekin veya yukarıya ürün adı yazın.")
-else:
-    st.error("Dosya bulunamadı! Lütfen envanter.csv dosyasını GitHub'a yüklediğinizden emin olun.")
+        st.error("Ürün bulunamadı.")
