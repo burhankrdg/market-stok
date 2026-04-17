@@ -27,80 +27,69 @@ df = verileri_yukle()
 st.markdown("<h2 style='text-align: center; color: #2a7e2a;'>🚀 Çamlık Market Terminal</h2>", unsafe_allow_html=True)
 
 # --- JAVASCRIPT KÖPRÜSÜ (GİZLİ İLETİŞİM) ---
-# Bu parça, kameranın okuduğu veriyi Python'a "fırlatır"
-if 'barkod_depo' not in st.session_state:
-    st.session_state.barkod_depo = ""
+# Okunan barkodu bu gizli bileşen aracılığıyla Python'a alacağız
+okunan_barkod = components.declare_component("barcode_scanner", path=".") 
 
-def barkod_ayarla():
-    if st.session_state.barkod_girdisi:
-        st.session_state.barkod_depo = st.session_state.barkod_girdisi
+# JavaScript kodunu doğrudan sayfaya gömüyoruz
+kamera_html = """
+<div id="reader" style="width: 100%; border-radius: 15px; border: 4px solid #2a7e2a;"></div>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script>
+    const html5QrCode = new Html5Qrcode("reader");
+    const config = { fps: 25, qrbox: { width: 250, height: 150 } };
+    
+    const success = (text) => {
+        // 1. Bip sesi
+        var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+        audio.play();
+        
+        // 2. Streamlit'e veriyi URL üzerinden DEĞİL, doğrudan state üzerinden gönder
+        // Pencereyi kapatmadan veya yenilemeden doğrudan Python değişkenini tetikler
+        window.parent.postMessage({
+            type: 'streamlit:set_query_params',
+            query_params: {barcode: text.trim()}
+        }, '*');
 
-# Görünen arama kutusu
-arama = st.text_input("🔍 Barkod:", value=st.session_state.barkod_depo, key="barkod_girdisi", on_change=barkod_ayarla)
+        // Hafif bir bekleme ile sayfayı zorla dürt
+        setTimeout(() => { window.parent.location.reload(); }, 150);
+    };
 
-# --- OTOMATİK KAMERA SİSTEMİ ---
-if not arama:
+    html5QrCode.start({ facingMode: "environment" }, config, success);
+</script>
+"""
+
+# URL parametresini kontrol et
+barkod_param = st.query_params.get("barcode", "")
+
+if not barkod_param:
+    components.html(kamera_html, height=350)
     st.info("📸 Barkodu kameraya gösterin...")
     
-    # Html5-Qrcode kullanarak doğrudan giriş kutusunu tetikliyoruz
-    kamera_js = """
-    <div id="reader" style="width: 100%; border-radius: 15px; border: 4px solid #2a7e2a;"></div>
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    <script>
-        const html5QrCode = new Html5Qrcode("reader");
-        const config = { fps: 20, qrbox: { width: 250, height: 150 } };
-        
-        const success = (text) => {
-            // 1. Bip sesi
-            var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-            audio.play();
-            
-            // 2. Streamlit'in input kutusunu bul ve değeri içine yaz
-            const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-            for (let input of inputs) {
-                // Streamlit'in React yapısını tetiklemek için değeri set et ve event fırlat
-                let lastValue = input.value;
-                input.value = text.trim();
-                let event = new Event('input', { bubbles: true });
-                event.simulated = true;
-                let tracker = input._valueTracker;
-                if (tracker) { tracker.setValue(lastValue); }
-                input.dispatchEvent(event);
-                
-                // Enter tuşuna basma simülasyonu
-                let enterEvent = new KeyboardEvent('keydown', {
-                    bubbles: true, cancelable: true, keyCode: 13
-                });
-                input.dispatchEvent(enterEvent);
-            }
-            
-            html5QrCode.stop();
-        };
-
-        html5QrCode.start({ facingMode: "environment" }, config, success);
-    </script>
-    """
-    components.html(kamera_js, height=350)
-
-# --- ÜRÜN GÖSTERİMİ ---
-if df is not None and arama:
-    if st.button("🔄 Yeni Ürün Tara"):
-        st.session_state.barkod_depo = ""
+    # Yedek arama kutusu
+    manuel = st.text_input("🔍 Veya Elle Yazın:")
+    if manuel:
+        st.query_params["barcode"] = manuel
+        st.rerun()
+else:
+    # Ürün Detay Ekranı
+    if st.button("⬅️ Yeni Ürün Tara"):
+        st.query_params.clear()
         st.rerun()
 
-    hedef = str(arama).strip()
-    sonuc = df[df['BARKOD'] == hedef]
-    
-    if sonuc.empty:
-        sonuc = df[df['BARKOD'].str.contains(hedef, na=False)]
+    if df is not None:
+        hedef = str(barkod_param).strip()
+        sonuc = df[df['BARKOD'] == hedef]
+        
+        if sonuc.empty:
+            sonuc = df[df['BARKOD'].str.contains(hedef, na=False)]
 
-    if not sonuc.empty:
-        st.divider()
-        for _, row in sonuc.iterrows():
-            st.success(f"### {row['ÜRÜN ADI']}")
-            c1, c2 = st.columns(2)
-            c1.metric("FİYAT", f"{row['FİYAT']:.2f} TL")
-            c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-            st.info(f"💰 Toplam Değer: {row['STOK'] * row['FİYAT']:,.2f} TL")
-    else:
-        st.error(f"❌ '{arama}' barkodlu ürün bulunamadı.")
+        if not sonuc.empty:
+            st.divider()
+            for _, row in sonuc.iterrows():
+                st.success(f"### {row['ÜRÜN ADI']}")
+                c1, c2 = st.columns(2)
+                c1.metric("FİYAT", f"{row['FİYAT']:.2f} TL")
+                c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
+                st.info(f"💰 Toplam Mal Değeri: {row['STOK'] * row['FİYAT']:,.2f} TL")
+        else:
+            st.error(f"❌ Barkod bulunamadı: {hedef}")
