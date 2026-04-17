@@ -1,20 +1,11 @@
 import streamlit as st
 import pandas as pd
 import os
-from PIL import Image
+import streamlit.components.v1 as components
 
-# Barkod okuma için en basit kütüphane
-try:
-    from pyzbar.pyzbar import decode
-    import numpy as np
-    BARCODE_READY = True
-except:
-    BARCODE_READY = False
-
-# --- SAYFA AYARLARI ---
+# --- AYARLAR ---
 st.set_page_config(page_title="Çamlık Market", layout="centered")
 
-# --- VERİ YÜKLEME ---
 @st.cache_data
 def verileri_yukle():
     dosyalar = [f for f in os.listdir('.') if f.endswith('.csv')]
@@ -32,39 +23,84 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-st.title("🛒 Çamlık Market Stok")
+# --- BAŞLIK ---
+st.markdown("<h2 style='text-align: center; color: #2a7e2a;'>🚀 Çamlık Market Terminal</h2>", unsafe_allow_html=True)
 
-# --- KAMERA SİSTEMİ ---
-# Streamlit'in kendi resmi bileşeni. Hata verme şansı yok.
-img_file = st.camera_input("Barkodu okutmak için fotoğraf çekin")
+# --- JAVASCRIPT KÖPRÜSÜ (GİZLİ İLETİŞİM) ---
+# Bu parça, kameranın okuduğu veriyi Python'a "fırlatır"
+if 'barkod_depo' not in st.session_state:
+    st.session_state.barkod_depo = ""
 
-okunan_barkod = ""
+def barkod_ayarla():
+    if st.session_state.barkod_girdisi:
+        st.session_state.barkod_depo = st.session_state.barkod_girdisi
 
-if img_file:
-    if BARCODE_READY:
-        img = Image.open(img_file)
-        # Barkodu görüntüden çöz
-        detected = decode(img)
-        if detected:
-            okunan_barkod = detected[0].data.decode("utf-8").strip()
-            st.success(f"Barkod Yakalandı: {okunan_barkod}")
-        else:
-            st.warning("Barkod okunamadı, lütfen daha net çekin.")
-    else:
-        st.error("Barkod okuma kütüphanesi (pyzbar) eksik. Lütfen manuel girin.")
+# Görünen arama kutusu
+arama = st.text_input("🔍 Barkod:", value=st.session_state.barkod_depo, key="barkod_girdisi", on_change=barkod_ayarla)
 
-# --- ARAMA KUTUSU ---
-arama = st.text_input("🔍 Barkod veya Ürün Adı:", value=okunan_barkod)
-
-# --- SONUÇLAR ---
-if df is not None and arama:
-    sonuc = df[(df['BARKOD'] == arama) | (df['ÜRÜN ADI'].str.contains(arama, case=False, na=False))]
+# --- OTOMATİK KAMERA SİSTEMİ ---
+if not arama:
+    st.info("📸 Barkodu kameraya gösterin...")
     
+    # Html5-Qrcode kullanarak doğrudan giriş kutusunu tetikliyoruz
+    kamera_js = """
+    <div id="reader" style="width: 100%; border-radius: 15px; border: 4px solid #2a7e2a;"></div>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script>
+        const html5QrCode = new Html5Qrcode("reader");
+        const config = { fps: 20, qrbox: { width: 250, height: 150 } };
+        
+        const success = (text) => {
+            // 1. Bip sesi
+            var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+            audio.play();
+            
+            // 2. Streamlit'in input kutusunu bul ve değeri içine yaz
+            const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+            for (let input of inputs) {
+                // Streamlit'in React yapısını tetiklemek için değeri set et ve event fırlat
+                let lastValue = input.value;
+                input.value = text.trim();
+                let event = new Event('input', { bubbles: true });
+                event.simulated = true;
+                let tracker = input._valueTracker;
+                if (tracker) { tracker.setValue(lastValue); }
+                input.dispatchEvent(event);
+                
+                // Enter tuşuna basma simülasyonu
+                let enterEvent = new KeyboardEvent('keydown', {
+                    bubbles: true, cancelable: true, keyCode: 13
+                });
+                input.dispatchEvent(enterEvent);
+            }
+            
+            html5QrCode.stop();
+        };
+
+        html5QrCode.start({ facingMode: "environment" }, config, success);
+    </script>
+    """
+    components.html(kamera_js, height=350)
+
+# --- ÜRÜN GÖSTERİMİ ---
+if df is not None and arama:
+    if st.button("🔄 Yeni Ürün Tara"):
+        st.session_state.barkod_depo = ""
+        st.rerun()
+
+    hedef = str(arama).strip()
+    sonuc = df[df['BARKOD'] == hedef]
+    
+    if sonuc.empty:
+        sonuc = df[df['BARKOD'].str.contains(hedef, na=False)]
+
     if not sonuc.empty:
+        st.divider()
         for _, row in sonuc.iterrows():
-            st.divider()
-            st.subheader(row['ÜRÜN ADI'])
+            st.success(f"### {row['ÜRÜN ADI']}")
             c1, c2 = st.columns(2)
             c1.metric("FİYAT", f"{row['FİYAT']:.2f} TL")
             c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
-            st.info(f"💰 Kalem Değeri: {row['STOK'] * row['FİYAT']:,.2f} TL")
+            st.info(f"💰 Toplam Değer: {row['STOK'] * row['FİYAT']:,.2f} TL")
+    else:
+        st.error(f"❌ '{arama}' barkodlu ürün bulunamadı.")
