@@ -1,31 +1,28 @@
 import streamlit as st
 import pandas as pd
 import os
-from streamlit_barcode_scanner import barcode_scanner # Bu kütüphane otomatik tarama yapar
+from streamlit_quagga2 import streamlit_quagga2
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Çamlık Market Terminal", layout="centered")
 
-# --- 1. GEREKLİ KÜTÜPHANE KONTROLÜ ---
-# GitHub'daki requirements.txt dosyasına 'streamlit-barcode-scanner' eklemeyi unutma!
-
-# --- 2. LOGO VE BAŞLIK ---
+# --- LOGO VE BAŞLIK ---
 if os.path.exists("image_1.png"):
     st.image("image_1.png", use_container_width=True)
 
 st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>Canlı Barkod Terminali</h3>", unsafe_allow_html=True)
-st.write("Barkodu kameraya gösterin, otomatik tanıyacaktır.")
 
-# --- 3. VERİ YÜKLEME ---
+# --- VERİ YÜKLEME ---
 @st.cache_data
 def verileri_yukle():
     dosyalar = [f for f in os.listdir('.') if f.endswith('.csv')]
     hedef = next((d for d in dosyalar if 'envanter' in d.lower() or '2.xls' in d.lower()), None)
     if hedef:
         df = pd.read_csv(hedef, encoding='utf-8-sig', sep=None, engine='python')
+        # Sütunları senin dosyandaki gerçek isimlerle eşle
         df.columns = ['BARKOD', 'ÜRÜN ADI', 'STOK', 'BİRİM', 'FİYAT'] + list(df.columns[5:])
         
-        # Sayısal Temizlik
+        # Sayısal Temizlik ve Hesaplama
         df['FİYAT'] = pd.to_numeric(df['FİYAT'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         df['STOK'] = pd.to_numeric(df['STOK'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         df['KALEM DEĞERİ'] = df['STOK'] * df['FİYAT']
@@ -35,27 +32,32 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# --- 4. OTOMATİK BARKOD TARAYICI (TUŞSUZ) ---
-# Bu bileşen kamerayı canlı açar ve barkodu görünce değeri döndürür.
-okunan_barkod = barcode_scanner()
+# --- CANLI BARKOD TARAYICI ---
+# Bu bileşen kamerayı otomatik açar ve 'Take Photo' tuşuna basmanı gerektirmez.
+st.write("📸 Barkodu kameraya gösterin...")
+barkod_verisi = streamlit_quagga2(key='scanner')
 
-# --- 5. ARAMA VE SONUÇ ---
-if okunan_barkod:
-    st.audio("https://www.soundjay.com/buttons/beep-01a.mp3") # Barkod okununca 'Bip' sesi
-    st.success(f"Okunan Barkod: {okunan_barkod}")
-    arama_degeri = okunan_barkod
+# --- SONUÇLARI GÖSTER ---
+# Barkod okunduğunda veya elle girildiğinde çalışır
+arama_metni = ""
+
+if barkod_verisi:
+    arama_metni = barkod_verisi
+    st.success(f"Okunan Barkod: {arama_metni}")
 else:
-    arama_degeri = st.text_input("Veya El ile Ürün/Barkod Girin:", "")
+    arama_metni = st.text_input("Veya Ürün Adı Girin:", "")
 
-if df is not None and arama_degeri:
-    sonuc = df[df['ÜRÜN ADI'].str.contains(arama_degeri, case=False, na=False) | (df['BARKOD'] == arama_degeri)]
+if df is not None and arama_metni:
+    sonuc = df[df['ÜRÜN ADI'].str.contains(arama_metni, case=False, na=False) | (df['BARKOD'] == arama_metni)]
     
     if not sonuc.empty:
         for _, row in sonuc.iterrows():
-            with st.expander(f"📦 {row['ÜRÜN ADI']}", expanded=True):
-                c1, c2 = st.columns(2)
-                c1.metric("FİYAT", f"{row['FİYAT']} TL")
-                c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
+            with st.container():
+                st.markdown(f"### {row['ÜRÜN ADI']}")
+                col1, col2 = st.columns(2)
+                col1.metric("FİYAT", f"{row['FİYAT']} TL")
+                col2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
                 st.info(f"Bu kalemdeki toplam mal değeri: **{row['KALEM DEĞERİ']:,.2f} TL**")
+                st.divider()
     else:
-        st.error("Ürün bulunamadı.")
+        st.warning("Ürün bulunamadı.")
