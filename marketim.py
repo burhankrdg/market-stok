@@ -29,78 +29,64 @@ def verileri_yukle():
 
 df = verileri_yukle()
 
-# --- URL'DEN BARKODU YAKALA ---
+# --- URL'DEN GELEN BARKODU YAKALA ---
 url_params = st.query_params
 okunan_barkod = url_params.get("barcode", "")
 
-st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>⚡ Otomatik Barkod Okuyucu</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; color: #2a7e2a;'>⚡ Profesyonel Barkod Terminali</h3>", unsafe_allow_html=True)
 
-# --- OTOMATİK KAMERA SİSTEMİ (BİP SESLİ) ---
+# --- 1. ADIM: EĞER BARKOD YOKSA KAMERAYI GÖSTER ---
 if not okunan_barkod:
-    st.write("📸 Barkodu kameraya gösterin...")
+    st.info("📸 Barkodu kare içine getirin, otomatik okunacaktır.")
     
-    barcode_js = """
-    <div id="interactive" class="viewport" style="width: 100%; height: 250px; border: 3px solid #2a7e2a; border-radius: 15px; overflow: hidden;"></div>
-    <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
+    # En profesyonel JS tarayıcı (Html5-QRCode)
+    terminal_html = """
+    <div id="reader" style="width: 100%; border-radius: 15px; overflow: hidden;"></div>
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
-        // Bip sesi için audio objesi
-        const beep = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+        const html5QrCode = new Html5Qrcode("reader");
+        const config = { fps: 20, qrbox: { width: 280, height: 150 } };
 
-        Quagga.init({
-            inputStream : { 
-                name : "Live", 
-                type : "LiveStream", 
-                target: document.querySelector('#interactive'),
-                constraints: { facingMode: "environment" } // ARKA KAMERAYI ZORLA
-            },
-            decoder : { readers : ["ean_reader", "ean_8_reader", "code_128_reader"] },
-            locate: true
-        }, function(err) { if (err) { return; } Quagga.start(); });
+        const onScanSuccess = (decodedText, decodedResult) => {
+            // 1. Sesli uyarı
+            var audio = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+            audio.play();
+            
+            // 2. Taramayı durdur (donmasın diye)
+            html5QrCode.stop().then(() => {
+                // 3. Adres çubuğunu güncelle ve sayfayı zorla yenile
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set('barcode', decodedText);
+                window.parent.location.href = url.href;
+            });
+        };
 
-        let detected = false;
-        Quagga.onDetected(function(result) {
-            if (!detected) {
-                detected = true;
-                let code = result.codeResult.code;
-                
-                // Bip sesini çal
-                beep.play();
-
-                // Sayfayı yeni barkodla güncelle
-                setTimeout(() => {
-                    const url = new URL(window.parent.location.href);
-                    url.searchParams.set('barcode', code);
-                    window.parent.location.href = url.href;
-                }, 300); // Ses duyulsun diye hafif bekleme
-            }
-        });
+        // Arka kamerayı (environment) başlat
+        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
     </script>
-    <style>
-        canvas.drawingBuffer, video.drawingBuffer { display: none; }
-        #interactive video { width: 100%; height: 100%; object-fit: cover; }
-    </style>
     """
-    components.html(barcode_js, height=270)
-else:
-    if st.button("🔄 Yeni Ürün Tara"):
+    components.html(terminal_html, height=350)
+
+# --- 2. ADIM: SONUÇLARI VE MANUEL ARAMAYI GÖSTER ---
+st.divider()
+arama = st.text_input("🔍 Barkod veya Ürün Adı Girin:", value=okunan_barkod)
+
+if okunan_barkod:
+    if st.button("🔄 Yeni Ürün Okut (Kamerayı Aç)"):
         st.query_params.clear()
         st.rerun()
-
-# --- SONUÇLARI GÖSTER ---
-# Arama kutusunu her zaman gösterelim (Elle düzeltme gerekirse)
-arama = st.text_input("🔍 Barkod veya Ürün Adı:", value=okunan_barkod)
 
 if df is not None and arama:
     sonuc = df[(df['BARKOD'] == arama) | (df['ÜRÜN ADI'].str.contains(arama, case=False, na=False))]
     
     if not sonuc.empty:
-        st.divider()
         for _, row in sonuc.iterrows():
             st.success(f"### {row['ÜRÜN ADI']}")
             c1, c2, c3 = st.columns(3)
             c1.metric("FİYAT", f"{row['FİYAT']} TL")
             c2.metric("STOK", f"{int(row['STOK'])} {row['BİRİM']}")
             c3.metric("TOPLAM DEĞER", f"{row['KALEM DEĞERİ']:,.2f} TL")
-            st.caption(f"Barkod: {row['BARKOD']}")
+            st.caption(f"Kayıtlı Barkod: {row['BARKOD']}")
+            st.divider()
     else:
-        st.error("❌ Ürün bulunamadı.")
+        st.error(f"❌ Ürün bulunamadı: {arama}")
